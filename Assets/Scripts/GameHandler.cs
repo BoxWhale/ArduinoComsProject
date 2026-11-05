@@ -15,6 +15,7 @@ public class GameHandler : MonoBehaviour
     public GameObject[] bitLigtsApprox; // Array to hold the bit light GameObjects, 3 lights for equation approximation
     public GameObject[] bitLightState; // Array to hold the bit light GameObjects, 2 lights for state of the game; Win or Lose
     public TextMeshProUGUI timeDisplay; // Reference to the TextMeshPro component for displaying Time
+        public int timeChange; // variable to hold the time change value received from Arduino
     public TextMeshProUGUI gameStateDisplay; // Reference to the TextMeshPro component for displaying gamestate
     public GameObject Door;
     
@@ -53,11 +54,14 @@ public class GameHandler : MonoBehaviour
                 string data = serialPort.ReadLine();
                 // Display the data in the Unity console for debugging purposes
                 Debug.Log(data);
+                // Parse the JSON data received from Arduino into the ArduinoData class
                 ArduinoData arduinoData = JsonUtility.FromJson<ArduinoData>(data);
-                if (arduinoData != null)
+                if (arduinoData.TIME != timeChange)
                 {
                     UpdateTimeDisplay(arduinoData.TIME);
+                    timeChange = arduinoData.TIME; // Update the timeChange variable with the new value
                 }
+                
             }
             catch (System.TimeoutException)
             {
