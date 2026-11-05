@@ -59,8 +59,8 @@ public class GameHandler : MonoBehaviour
     public TextMeshProUGUI gameStateDisplay; // Reference to the TextMeshPro component for displaying gamestate
     public GameObject Door;
     
-    public int gameState = 0; // variable to hold the previous game state value received from Arduino, no use for now
-    public int winState = 2; // variable to hold the previous win state value received from Arduino, 2 = NOT_CONCLUDED
+    // public int gameState = 0; // variable to hold the previous game state value received from Arduino, no use for now redundant.
+    // public int winState = 2; // variable to hold the previous win state value received from Arduino, 2 = NOT_CONCLUDED redundant.
     public int[] switchState = new int[8]{0, 0, 0, 0, 0, 0, 0, 0}; // variable to hold the previous switch state values received from Arduino, 8 switches for 8 bits
     
     void ResetLights()
@@ -107,34 +107,25 @@ public class GameHandler : MonoBehaviour
                     UpdateTimeDisplay(arduinoData.TIME);
                     timeChange = arduinoData.TIME; // Update the timeChange variable with the new value
                 }
-                if(arduinoData.GAME_STATE != gameState)
-                {
-                    UpdateGameState(arduinoData.GAME_STATE);
-                    gameState = arduinoData.GAME_STATE; // Update the gameState variable with the new value
-                }
-                if(arduinoData.WIN_STATE != winState)
-                {
-                    UpdateWinState(arduinoData.WIN_STATE);
-                    winState = arduinoData.WIN_STATE; // Update the winState variable with the new value
-                }
                 if(arduinoData.WRONG)
                 {
                     // If the WRONG value is true, display the wrong visual text
                     gameStateDisplay.text = "WRONG!";
+                    UpdateGameState(2, arduinoData.WIN_STATE); // Update the game state to WRONG
                 }
                 else
                 {
                     // If the WRONG value is false, display the game state text
                     if (arduinoData.GAME_STATE == 0)
                     {
-                        gameStateDisplay.text = "Playing";
+                        UpdateGameState(0, arduinoData.WIN_STATE); // Update the game state to ACTIVE
                     }
-                    else if (arduinoData.GAME_STATE == 1)
+                    else
                     {
-                        gameStateDisplay.text = "Session ended";
+                        UpdateGameState(1, arduinoData.WIN_STATE); // Update the game state to ENDED
                     }
+
                 }
-                
                 if(switchState != arduinoData.SwitchState)
                 {
                     // Update the bit lights based on the switch state values received from Arduino
@@ -157,17 +148,26 @@ public class GameHandler : MonoBehaviour
         }
     }
     
-    void UpdateGameState(int gameState)
+    void UpdateGameState(int gameState, int winState)
     {
-        // Update the game state actions depending on what can be implemeted with this data. For now, just display the game state in the console.
+        if (winState != 2)
+        {
+            UpdateWinState(winState);
+            return; // If the win state is not NOT_CONCLUDED, we don't need to update the game state further
+        }
         if (gameState == 0)
         {
-            Debug.Log("Game State: ACTIVE");
+            gameStateDisplay.text = "Waiting for responds"; // Display the active game state text
         }
         else if (gameState == 1)
         {
-            Debug.Log("Game State: ENDED");
+            gameStateDisplay.text = "Game Ended"; // Display the ended game state text, this is in case that winstate fails to get updated.
         }
+        else if (gameState == 2)
+        {
+            gameStateDisplay.text = "Wrong!"; // Display the wrong game state text
+        }
+
     }
     
     void UpdateWinState(int winState)
@@ -178,6 +178,7 @@ public class GameHandler : MonoBehaviour
             Debug.Log("Win State: WON");
             bitLightState[0].GetComponent<Light>().enabled = true; // Turn on the "WON" light
             bitLightState[1].GetComponent<Light>().enabled = false; // Turn off the "LOST" light
+            gameStateDisplay.text = "YOU WIN!"; // Display the win message
             Door.SetActive(false); // Open the door when the player wins
         }
         else if (winState == 1)
@@ -185,9 +186,11 @@ public class GameHandler : MonoBehaviour
             Debug.Log("Win State: LOST");
             bitLightState[0].GetComponent<Light>().enabled = false; // Turn off the "WON" light
             bitLightState[1].GetComponent<Light>().enabled = true; // Turn on the "LOST" light
-            Door.SetActive(true); // Close the door when the player loses
+            gameStateDisplay.text = "YOU LOSE!"; // Display the lose message
+            // The door always remains closed in active play state
+            //Door.SetActive(true); // Close the door when the player loses
         }
-        else if (winState == 2)
+        else if (winState == 2) // supposedly won't activate, as this is the default state, but just in case, we will turn off both lights.
         {
             Debug.Log("Win State: NOT_CONCLUDED");
             bitLightState[0].GetComponent<Light>().enabled = false; // Turn off the "WON" light
