@@ -2,10 +2,50 @@ using UnityEngine;
 using System.IO.Ports;
 using TMPro;
 
+/* JSON data structure received from Arduino via UART:
+{
+  "GAME_STATE": int,    // 0 = ACTIVE, 1 = ENDED
+  "WIN_STATE": int,     // 0 = WON, 1 = LOST, 2 = NOT_CONCLUDED
+  "TIME": int,          // Time in seconds
+  "WRONG": bool,        // Show wrong visual
+  "HOT": float,         // How close the player is to the correct answer, 0.0 = far, 1.0 = close, supposedly suggested for now
+                        // The equation is supposedly Mathf.Exp(-Mathf.Pow(x - 42f, 2) / 400); where the x is the player's answer
+  "A": int,             // 0 = OFF, 1 = ON [128]
+  "B": int,             // 0 = OFF, 1 = ON [64]
+  "C": int,             // 0 = OFF, 1 = ON [32]
+  "D": int,             // 0 = OFF, 1 = ON [16]
+  "E": int,             // 0 = OFF, 1 = ON [8]
+  "F": int,             // 0 = OFF, 1 = ON [4]
+  "G": int,             // 0 = OFF, 1 = ON [2]
+  "H": int,             // 0 = OFF, 1 = ON [1]
+}
+ */
+
 [System.Serializable]
 public class ArduinoData
 {
+    public int GAME_STATE;
+    public int WIN_STATE;
     public int TIME;
+    public bool WRONG;
+    //public float HOT; // Ignored for now, not used in the current implementation of the arduino
+    public int A; // 0 = OFF, 1 = ON [128]
+    public int B; // 0 = OFF, 1 = ON [64]
+    public int C; // 0 = OFF, 1 = ON [32]
+    public int D; // 0 = OFF, 1 = ON [16]
+    public int E; // 0 = OFF, 1 = ON [8]
+    public int F; // 0 = OFF, 1 = ON [4]
+    public int G; // 0 = OFF, 1 = ON [2]
+    public int H; // 0 = OFF, 1 = ON [1]
+
+    // Combines the eight switch values into one array
+    public int[] SwitchState
+    {
+        get
+        {
+            return new int[] { A, B, C, D, E, F, G, H };
+        }
+    }
 }
 
 public class GameHandler : MonoBehaviour
@@ -15,9 +55,13 @@ public class GameHandler : MonoBehaviour
     public GameObject[] bitLigtsApprox; // Array to hold the bit light GameObjects, 3 lights for equation approximation
     public GameObject[] bitLightState; // Array to hold the bit light GameObjects, 2 lights for state of the game; Win or Lose
     public TextMeshProUGUI timeDisplay; // Reference to the TextMeshPro component for displaying Time
-        public int timeChange; // variable to hold the time change value received from Arduino
+        public int timeChange; // variable to hold the previous time change value received from Arduino
     public TextMeshProUGUI gameStateDisplay; // Reference to the TextMeshPro component for displaying gamestate
     public GameObject Door;
+    
+    // public int gameState = 0; // variable to hold the previous game state value received from Arduino, no use for now redundant.
+    // public int winState = 2; // variable to hold the previous win state value received from Arduino, 2 = NOT_CONCLUDED redundant.
+    public int[] switchState = new int[8]{0, 0, 0, 0, 0, 0, 0, 0}; // variable to hold the previous switch state values received from Arduino, 8 switches for 8 bits
     
     void ResetLights()
     {
@@ -56,12 +100,42 @@ public class GameHandler : MonoBehaviour
                 Debug.Log(data);
                 // Parse the JSON data received from Arduino into the ArduinoData class
                 ArduinoData arduinoData = JsonUtility.FromJson<ArduinoData>(data);
+                
+                // Redundant checks to see if the values have changed before updating the display, to avoid unnecessary updates
                 if (arduinoData.TIME != timeChange)
                 {
                     UpdateTimeDisplay(arduinoData.TIME);
                     timeChange = arduinoData.TIME; // Update the timeChange variable with the new value
                 }
-                
+                if(arduinoData.WRONG)
+                {
+                    // If the WRONG value is true, display the wrong visual text
+                    gameStateDisplay.text = "WRONG!";
+                    UpdateGameState(2, arduinoData.WIN_STATE); // Update the game state to WRONG
+                }
+                else
+                {
+                    // If the WRONG value is false, display the game state text
+                    if (arduinoData.GAME_STATE == 0)
+                    {
+                        UpdateGameState(0, arduinoData.WIN_STATE); // Update the game state to ACTIVE
+                    }
+                    else
+                    {
+                        UpdateGameState(1, arduinoData.WIN_STATE); // Update the game state to ENDED
+                    }
+
+                }
+                if(switchState != arduinoData.SwitchState)
+                {
+                    // Update the bit lights based on the switch state values received from Arduino
+                    for (int i = 0; i < 8; i++)
+                    {
+                        // Update the bit light based on the switch state value, if the value is 1, turn on the light, if 0, turn off the light
+                        bitLigts[i].GetComponent<Light>().enabled = arduinoData.SwitchState[i] == 1;
+                    }
+                    switchState = arduinoData.SwitchState; // Update the switchState variable with the new values
+                }
             }
             catch (System.TimeoutException)
             {
@@ -71,6 +145,56 @@ public class GameHandler : MonoBehaviour
             {
                 Debug.LogWarning("Could not parse UART JSON: " + exception.Message);
             }
+        }
+    }
+    
+    void UpdateGameState(int gameState, int winState)
+    {
+        if (winState != 2)
+        {
+            UpdateWinState(winState);
+            return; // If the win state is not NOT_CONCLUDED, we don't need to update the game state further
+        }
+        if (gameState == 0)
+        {
+            gameStateDisplay.text = "Waiting for responds"; // Display the active game state text
+        }
+        else if (gameState == 1)
+        {
+            gameStateDisplay.text = "Game Ended"; // Display the ended game state text, this is in case that winstate fails to get updated.
+        }
+        else if (gameState == 2)
+        {
+            gameStateDisplay.text = "Wrong!"; // Display the wrong game state text
+        }
+
+    }
+    
+    void UpdateWinState(int winState)
+    {
+        // Update the win state actions depending on what can be implemeted with this data. For now, just display the win state in the console.
+        if (winState == 0)
+        {
+            Debug.Log("Win State: WON");
+            bitLightState[0].GetComponent<Light>().enabled = true; // Turn on the "WON" light
+            bitLightState[1].GetComponent<Light>().enabled = false; // Turn off the "LOST" light
+            gameStateDisplay.text = "YOU WIN!"; // Display the win message
+            Door.SetActive(false); // Open the door when the player wins
+        }
+        else if (winState == 1)
+        {
+            Debug.Log("Win State: LOST");
+            bitLightState[0].GetComponent<Light>().enabled = false; // Turn off the "WON" light
+            bitLightState[1].GetComponent<Light>().enabled = true; // Turn on the "LOST" light
+            gameStateDisplay.text = "YOU LOSE!"; // Display the lose message
+            // The door always remains closed in active play state
+            //Door.SetActive(true); // Close the door when the player loses
+        }
+        else if (winState == 2) // supposedly won't activate, as this is the default state, but just in case, we will turn off both lights.
+        {
+            Debug.Log("Win State: NOT_CONCLUDED");
+            bitLightState[0].GetComponent<Light>().enabled = false; // Turn off the "WON" light
+            bitLightState[1].GetComponent<Light>().enabled = false; // Turn off the "LOST" light
         }
     }
     
