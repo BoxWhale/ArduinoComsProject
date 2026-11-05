@@ -8,8 +8,9 @@ using TMPro;
   "WIN_STATE": int,     // 0 = WON, 1 = LOST, 2 = NOT_CONCLUDED
   "TIME": int,          // Time in seconds
   "WRONG": bool,        // Show wrong visual
-  "HOT": float,         // How close the player is to the correct answer, 0.0 = far, 1.0 = close, supposedly suggested for now
-                        // The equation is supposedly Mathf.Exp(-Mathf.Pow(x - 42f, 2) / 400); where the x is the player's answer
+  "PROX_1": int,        // 0 = OFF, 1 = ON
+  "PROX_2": int,        // 0 = OFF, 1 = ON
+  "PROX_3": int,        // 0 = OFF, 1 = ON
   "A": int,             // 0 = OFF, 1 = ON [128]
   "B": int,             // 0 = OFF, 1 = ON [64]
   "C": int,             // 0 = OFF, 1 = ON [32]
@@ -19,7 +20,7 @@ using TMPro;
   "G": int,             // 0 = OFF, 1 = ON [2]
   "H": int,             // 0 = OFF, 1 = ON [1]
 }
- */
+*/
 
 [System.Serializable]
 public class ArduinoData
@@ -28,7 +29,9 @@ public class ArduinoData
     public int WIN_STATE;
     public int TIME;
     public bool WRONG;
-    //public float HOT; // Ignored for now, not used in the current implementation of the arduino
+    public int PROX_1; // 0 = OFF, 1 = ON
+    public int PROX_2; // 0 = OFF, 1 = ON
+    public int PROX_3; // 0 = OFF, 1 = ON
     public int A; // 0 = OFF, 1 = ON [128]
     public int B; // 0 = OFF, 1 = ON [64]
     public int C; // 0 = OFF, 1 = ON [32]
@@ -37,7 +40,15 @@ public class ArduinoData
     public int F; // 0 = OFF, 1 = ON [4]
     public int G; // 0 = OFF, 1 = ON [2]
     public int H; // 0 = OFF, 1 = ON [1]
-
+    
+    // Combines the three proximity sensor values into one array
+    public int[] ProximityState
+    {
+        get
+        {
+            return new int[] { PROX_1, PROX_2, PROX_3 };
+        }
+    }
     // Combines the eight switch values into one array
     public int[] SwitchState
     {
@@ -62,6 +73,7 @@ public class GameHandler : MonoBehaviour
     // public int gameState = 0; // variable to hold the previous game state value received from Arduino, no use for now redundant.
     // public int winState = 2; // variable to hold the previous win state value received from Arduino, 2 = NOT_CONCLUDED redundant.
     public int[] switchState = new int[8]{0, 0, 0, 0, 0, 0, 0, 0}; // variable to hold the previous switch state values received from Arduino, 8 switches for 8 bits
+    public int[] proximityState = new int[3]{0, 0, 0}; // variable to hold the previous proximity state values received from Arduino, 3 proximity sensors for equation approximation
     
     void ResetLights()
     {
@@ -125,6 +137,16 @@ public class GameHandler : MonoBehaviour
                         UpdateGameState(1, arduinoData.WIN_STATE); // Update the game state to ENDED
                     }
 
+                }
+                if(proximityState != arduinoData.ProximityState)
+                {
+                    // Update the bit lights based on the proximity state values received from Arduino
+                    for (int i = 0; i < 3; i++)
+                    {
+                        // Update the bit light based on the proximity state value, if the value is 1, turn on the light, if 0, turn off the light
+                        bitLigtsApprox[i].GetComponent<Light>().enabled = arduinoData.ProximityState[i] == 1;
+                    }
+                    proximityState = arduinoData.ProximityState; // Update the proximityState variable with the new values
                 }
                 if(switchState != arduinoData.SwitchState)
                 {
@@ -197,6 +219,7 @@ public class GameHandler : MonoBehaviour
             bitLightState[1].GetComponent<Light>().enabled = false; // Turn off the "LOST" light
         }
     }
+    
     
     void UpdateTimeDisplay(int time)
     {
