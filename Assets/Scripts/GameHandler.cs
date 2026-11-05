@@ -91,8 +91,6 @@ public class GameHandler : MonoBehaviour
             light.GetComponent<Light>().enabled = false;
         }
     }
-    
-    
     void Start()
     {
         serialPort.ReadTimeout = 10; // Prevents Unity from freezing to wait for data from Arduino
