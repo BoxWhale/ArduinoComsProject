@@ -25,6 +25,7 @@ using TMPro;
 [System.Serializable]
 public class ArduinoData
 {
+    public int type;
     public int GAME_STATE;
     public int WIN_STATE;
     public int TIME;
@@ -61,12 +62,12 @@ public class ArduinoData
 
 public class GameHandler : MonoBehaviour
 {
-    SerialPort serialPort = new SerialPort("COM3", 9600);
+    SerialPort serialPort = new SerialPort("COM5", 115200); // Set the correct COM port and baud rate for your Arduino
     public GameObject[] bitLigts; // Array to hold the bit light GameObjects, 8 lights for 8 bits
     public GameObject[] bitLigtsApprox; // Array to hold the bit light GameObjects, 3 lights for equation approximation
     public GameObject[] bitLightState; // Array to hold the bit light GameObjects, 2 lights for state of the game; Win or Lose
     public TextMeshProUGUI timeDisplay; // Reference to the TextMeshPro component for displaying Time
-        public int timeChange; // variable to hold the previous time change value received from Arduino
+    public int timeChange = -1; // variable to hold the previous time change value received from Arduino
     public TextMeshProUGUI gameStateDisplay; // Reference to the TextMeshPro component for displaying gamestate
     public GameObject Door;
     
@@ -93,79 +94,101 @@ public class GameHandler : MonoBehaviour
     }
     void Start()
     {
-        serialPort.ReadTimeout = 10; // Prevents Unity from freezing to wait for data from Arduino
+        serialPort.DtrEnable = true; // Required for Uno R4 Native USB
+        serialPort.RtsEnable = true;
+        serialPort.ReadTimeout = 20; // Prevents Unity from freezing to wait for data from Arduino
         serialPort.Open(); // Open the serial port to start communication with Arduino
         ResetLights();
     }
 
     void Update()
     {
-        if (serialPort.IsOpen)
+        if (!serialPort.IsOpen) return;
+
+        // Process all complete messages currently available in the buffer.
+        while (serialPort.BytesToRead > 0)
         {
             try
             {
-                // Read the data coming from Arduino
-                string data = serialPort.ReadLine();
-                // Display the data in the Unity console for debugging purposes
-                Debug.Log(data);
-                // Parse the JSON data received from Arduino into the ArduinoData class
-                ArduinoData arduinoData = JsonUtility.FromJson<ArduinoData>(data);
-                
-                // Redundant checks to see if the values have changed before updating the display, to avoid unnecessary updates
-                if (arduinoData.TIME != timeChange)
-                {
-                    UpdateTimeDisplay(arduinoData.TIME);
-                    timeChange = arduinoData.TIME; // Update the timeChange variable with the new value
-                }
-                if(arduinoData.WRONG)
-                {
-                    // If the WRONG value is true, display the wrong visual text
-                    gameStateDisplay.text = "WRONG!";
-                    UpdateGameState(2, arduinoData.WIN_STATE); // Update the game state to WRONG
-                }
-                else
-                {
-                    // If the WRONG value is false, display the game state text
-                    if (arduinoData.GAME_STATE == 0)
-                    {
-                        UpdateGameState(0, arduinoData.WIN_STATE); // Update the game state to ACTIVE
-                    }
-                    else
-                    {
-                        UpdateGameState(1, arduinoData.WIN_STATE); // Update the game state to ENDED
-                    }
+                string data = serialPort.ReadLine().Trim();
+                Debug.Log("UART: " + data);
 
-                }
-                if(proximityState != arduinoData.ProximityState)
+                ArduinoData arduinoData = JsonUtility.FromJson<ArduinoData>(data);
+
+                switch (arduinoData.type)
                 {
-                    // Update the bit lights based on the proximity state values received from Arduino
-                    for (int i = 0; i < 3; i++)
-                    {
-                        // Update the bit light based on the proximity state value, if the value is 1, turn on the light, if 0, turn off the light
-                        bitLigtsApprox[i].GetComponent<Light>().enabled = arduinoData.ProximityState[i] == 1;
-                    }
-                    proximityState = arduinoData.ProximityState; // Update the proximityState variable with the new values
-                }
-                if(switchState != arduinoData.SwitchState)
-                {
-                    // Update the bit lights based on the switch state values received from Arduino
-                    for (int i = 0; i < 8; i++)
-                    {
-                        // Update the bit light based on the switch state value, if the value is 1, turn on the light, if 0, turn off the light
-                        bitLigts[i].GetComponent<Light>().enabled = arduinoData.SwitchState[i] == 1;
-                    }
-                    switchState = arduinoData.SwitchState; // Update the switchState variable with the new values
+                    case 1:
+                        if (arduinoData.WRONG)
+                        {
+                            gameStateDisplay.text = "WRONG!";
+                            UpdateGameState(2, arduinoData.WIN_STATE);
+                        }
+                        else
+                        {
+                            UpdateGameState(arduinoData.GAME_STATE, arduinoData.WIN_STATE);
+                        }
+                        break;
+
+                    case 2:
+                        if (arduinoData.TIME != timeChange)
+                        {
+                            UpdateTimeDisplay(arduinoData.TIME);
+                            timeChange = arduinoData.TIME;
+                        }
+                        break;
+
+                    case 3:
+                        int[] switchValues = arduinoData.SwitchState;
+                        if (!AreStatesEqual(switchState, switchValues))
+                        {
+                            for (int i = 0; i < switchValues.Length; i++)
+                            {
+                                bitLigts[i].GetComponent<Light>().enabled = switchValues[i] == 1;
+                            }
+                            switchState = switchValues;
+                        }
+                        break;
+
+                    case 4:
+                        int[] proximityValues = arduinoData.ProximityState;
+                        if (!AreStatesEqual(proximityState, proximityValues))
+                        {
+                            for (int i = 0; i < proximityValues.Length; i++)
+                            {
+                                bitLigtsApprox[i].GetComponent<Light>().enabled = proximityValues[i] == 1;
+                            }
+                            proximityState = proximityValues;
+                        }
+                        break;
                 }
             }
             catch (System.TimeoutException)
             {
-                // No new data this frame, just ignore
+                break; // The message is not complete yet; try again next frame.
             }
-            catch (System.ArgumentException exception)
+            catch (System.Exception exception)
             {
-                Debug.LogWarning("Could not parse UART JSON: " + exception.Message);
+                Debug.LogWarning("UART Parsing Error: " + exception.Message);
             }
         }
+    }
+
+    bool AreStatesEqual(int[] currentState, int[] receivedState)
+    {
+        if (currentState == null || receivedState == null || currentState.Length != receivedState.Length)
+        {
+            return false;
+        }
+
+        for (int i = 0; i < currentState.Length; i++)
+        {
+            if (currentState[i] != receivedState[i])
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
     
     void UpdateGameState(int gameState, int winState)
